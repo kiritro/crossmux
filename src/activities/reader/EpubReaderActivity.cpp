@@ -359,8 +359,8 @@ bool EpubReaderActivity::loadBook() {
   epub = std::move(loadedEpub);
 
   ImageBlock::clearSessionRenderFailures();
-  ImageBlock::setExtractor(epub.get(), [](void* ctx, const char* src, const char* dest) {
-    return static_cast<Epub*>(ctx)->extractItemToFile(src, dest);
+  ImageBlock::setExtractor(epub.get(), [](void* ctx, const char* src, const char* dest, CancelCheck cancellation) {
+    return static_cast<Epub*>(ctx)->extractItemToFile(src, dest, cancellation);
   });
 
   epub->setupCacheDir();
@@ -1181,16 +1181,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       startActivityForResultWith<TextSettingsActivity>(
           [this](const ActivityResult&) {
             READING_STATS.resumeSession();
-            {
-              RenderLock lock;
-              if (section) {
-                rememberCurrentContentOffset();
-                cachedSpineIndex = currentSpineIndex;
-                cachedChapterTotalPageCount = section->pageCount;
-                nextPageNumber = section->currentPage;
-              }
-              section.reset();
-            }
+            applyReaderTextSettings();
             openReaderMenu();
           },
           &sdFontSystem.registry(), TextSettingsActivity::Tab::Family);
@@ -2228,7 +2219,7 @@ void EpubReaderActivity::renderIdle(const uint32_t generation) {
 
 // Build one page into one slot. Returns true when the slot ends up holding a finished
 // page; every other exit leaves it Skipped and logs why. Runs only from renderIdle(),
-// on the loop task, with no render lock held.
+// on the render task while holding the render lock. Cancellation must be bounded.
 bool EpubReaderActivity::buildPageCacheSlot(const int slot, const ReaderPageCacheKey& key, const uint32_t generation) {
   const auto cancelled = [&] { return activityManager.idleRenderCancelled(generation); };
   if (pageCache_[slot].attempted(key)) {
@@ -2249,8 +2240,33 @@ bool EpubReaderActivity::buildPageCacheSlot(const int slot, const ReaderPageCach
     return false;
   }
   if (page->hasImages()) {
-    LOG_DBG("ERS", "Page cache: slot %d, page %d has images, not cached", slot, key.page);
-    return false;
+    if (slot != 0 || !page->hasImagesNeedingDecode()) return false;
+    const size_t bytes = renderer.getBufferSize();
+    if (!bytes) return false;
+    if (!pageCacheStash_[slot]) {
+      if (!memory::psramHasHeadroom(bytes, bytes, 16 * 1024)) return false;
+      pageCacheStash_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
+      if (!pageCacheStash_[slot]) return false;  // Optional work must not disable the text cache.
+    }
+    if (cancelled()) return false;
+    auto* live = renderer.getFrameBuffer();
+    memcpy(pageCacheStash_[slot].get(), live, bytes);
+    const auto mode = renderer.getRenderMode();
+    const ScopedCleanup restore{[&] {
+      renderer.setRenderMode(mode);
+      memcpy(live, pageCacheStash_[slot].get(), bytes);
+      ImageBlock::releaseRenderCache();
+    }};
+    uint32_t idleGeneration = generation;
+    const CancelCheck cancellation{&idleGeneration, [](void* context) {
+                                     return activityManager.idleRenderCancelled(*static_cast<uint32_t*>(context));
+                                   }};
+    const auto started = millis();
+    GfxRenderer::FrameBufferLoan loan(renderer);
+    const bool ready = page->warmImages(renderer, key.left, key.top, cancellation);
+    LOG_DBG("ERS", "Image prewarm: page=%d ready=%d cancelled=%d time=%lums", key.page, ready,
+            cancellation.isCancelled(), millis() - started);
+    return false;  // Only .pxc is warmed; foreground still renders the grayscale image.
   }
 
   const size_t bytes = renderer.getBufferSize();
@@ -2262,7 +2278,7 @@ bool EpubReaderActivity::buildPageCacheSlot(const int slot, const ReaderPageCach
       pageCacheBase_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
       pageCacheLsb_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
       pageCacheMsb_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
-      pageCacheStash_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
+      if (!pageCacheStash_[slot]) pageCacheStash_[slot] = memory::makePsramByteBufferUninitializedNoThrow(bytes);
     }
     if (!pageCacheBase_[slot] || !pageCacheLsb_[slot] || !pageCacheMsb_[slot] || !pageCacheStash_[slot]) {
       freePageCache();
@@ -2426,6 +2442,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Night mode renders crisp B/W; the SDK disables every grayscale display path.
   const bool grayscaleEnabled = !renderer.isInverted();
   const bool needsTextGrayscale = grayscaleEnabled && SETTINGS.textAntiAliasing;
+  // Images write the BW buffer directly; keep them, backgrounds and faux bold on the existing path.
+  const bool use16LevelText = needsTextGrayscale && !pageHasImages && renderer.getGrayscaleLevels() == 16 &&
+                              sdFontSystem.readerFaceIsFourBit() && !SETTINGS.readingBackgroundEnabled &&
+                              SETTINGS.fakeBold == 0;
 #if FREEINK_DEVICE_EEGO_A4
   // A4 single-refresh design: displayGrayBuffer() replaces the B/W base on the
   // panel, so whatever the gray pass draws IS the final frame. With text AA
@@ -2546,6 +2566,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     }
     LOG_DBG("ERS", "UC8279 image page: absolute quality waveform");
     pagesUntilFullRefresh = 1;
+  } else if (use16LevelText) {
+    // 16 级文字：下面那一趟 commitGrayscale16() 自己把整帧推给面板，所以这里**不**推底图。
+    // 多推一次会变成两次面板驱动（更闪、更慢），而 16 级用的本身就是整屏波形，残影照清。
+    // / 16-level text: the single commitGrayscale16() below drives the panel with the whole
+    // frame, so the base is deliberately NOT pushed here. Pushing it would drive the panel
+    // twice (more flash, more time), and the 16-level waveform is a full-screen one anyway,
+    // so ghosting is still cleared.
   } else if (combinedGrayscaleBase) {
     ReaderUtils::displayBaseWithRefreshCycle(renderer, pagesUntilFullRefresh, manualRefreshPending);
   } else if (pageHasImages) {
@@ -2574,7 +2601,34 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   const auto tDisplay = millis();
 
-  if (tiledGrayscale) {
+  if (use16LevelText) {
+    // Native begin clears the frame, so render the complete page again.
+    if (renderer.beginGrayscale16()) {
+      renderPageWithGuideLines();
+      renderStatusBar();
+      if (activityManager.isSwitchPending()) {
+        renderer.cancelGrayscale16();
+        return;
+      }
+      if (renderer.commitGrayscale16()) {
+        const auto tEnd = millis();
+        LOG_DBG("ERS", "Page render: 16-level text total=%lums", tEnd - t0);
+        pagesUntilFullRefresh = 1;
+        return;
+      }
+      LOG_ERR("ERS", "16-level text commit failed; displaying B/W");
+    } else {
+      LOG_ERR("ERS", "Could not start the 16-level text pass; displaying B/W");
+    }
+    renderer.cancelGrayscale16();
+    renderer.setRenderMode(GfxRenderer::BW);
+    renderer.clearScreen();
+    renderPageWithGuideLines();
+    renderStatusBar();
+    renderer.displayBuffer(HalDisplay::FULL_REFRESH);
+    pagesUntilFullRefresh = 1;
+    return;
+  } else if (tiledGrayscale) {
     constexpr int STRIP_ROWS = 80;
     const int gh = renderer.getDisplayHeight();
     const int gwBytes = renderer.getDisplayWidthBytes();
