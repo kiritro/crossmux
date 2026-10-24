@@ -381,6 +381,24 @@ bool ActivityManager::handleMainTabInput() {
 
   switch (mainTabFocus) {
     case MainTabFocus::Tabs:
+#if FREEINK_CAP_FOUR_KEY_UI
+      // Four-key layout: UP/DOWN walk the tab bar (wrapping) and CONFIRM enters
+      // the current tab's content, so no horizontal key is required. The
+      // input layer's UP/DOWN-hold fallback still emits LEFT/RIGHT on this
+      // board; those events are deliberately ignored here.
+      if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+        goToMainTab(MainTabs::adjacent(currentTab, -1));
+        return true;
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+        goToMainTab(MainTabs::adjacent(currentTab, 1));
+        return true;
+      }
+      if (mappedInput.isPressed(MappedInputManager::Button::Up) ||
+          mappedInput.isPressed(MappedInputManager::Button::Down)) {
+        return true;
+      }
+#else
       if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
         goToMainTab(MainTabs::adjacent(currentTab, -1));
         return true;
@@ -393,6 +411,7 @@ bool ActivityManager::handleMainTabInput() {
           mappedInput.isPressed(MappedInputManager::Button::Right)) {
         return true;
       }
+#endif
 
       if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
         mainTabFocus = MainTabFocus::Content;
@@ -401,29 +420,7 @@ bool ActivityManager::handleMainTabInput() {
       }
       if (mappedInput.isPressed(MappedInputManager::Button::Confirm)) return true;
 
-#if FREEINK_CAP_AXIS_HOLD_HORIZONTAL
-      // UP/DOWN are also the axis-hold source for LEFT/RIGHT on this board, so
-      // entering the current tab's content waits for the release. Acting on the
-      // press would leave the tab bar before the 650 ms hold could become a tab
-      // switch. On the release frame the Left/Right handlers above run first, so
-      // a hold switches tabs and never falls into content as well.
-      if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
-        mainTabFocus = MainTabFocus::Content;
-        currentActivity->selectMainTabContentEdge(MainTabContentEdge::First);
-        requestUpdate();
-        return true;
-      }
-      if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
-        mainTabFocus = MainTabFocus::Content;
-        currentActivity->selectMainTabContentEdge(MainTabContentEdge::Last);
-        requestUpdate();
-        return true;
-      }
-      if (mappedInput.isPressed(MappedInputManager::Button::Up) ||
-          mappedInput.isPressed(MappedInputManager::Button::Down)) {
-        return true;
-      }
-#else
+#if !FREEINK_CAP_FOUR_KEY_UI
       if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
         mainTabFocus = MainTabFocus::Content;
         mainTabEntryReleasePending = true;

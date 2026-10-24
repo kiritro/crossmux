@@ -125,6 +125,9 @@ class KeyboardEntryActivity : public Activity {
   void clampSelection();
   void moveSelectionRow(int delta);
   void moveSelectionCol(int delta);
+  // Four-key pads walk every key in layout order (row-major), so UP/DOWN alone
+  // can reach any column without a horizontal key.
+  void moveSelectionLinear(int delta);
   bool syncSelectionToValue(int16_t value);
   // Handles one key activation (by stable key id). Returns true when the
   // screen needs a repaint; OK/cancel finish the activity instead.

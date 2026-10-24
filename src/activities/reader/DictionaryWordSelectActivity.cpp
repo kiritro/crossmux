@@ -273,6 +273,23 @@ void DictionaryWordSelectActivity::loop() {
   const unsigned long now = millis();
   const bool repeat =
       mappedInput.getHeldTime() >= WORD_REPEAT_START_MS && now - lastHorizontalMoveTime >= WORD_REPEAT_INTERVAL_MS;
+#if FREEINK_CAP_FOUR_KEY_UI
+  // Four-key layout: words are walked in reading order with UP/DOWN; the
+  // two-dimensional line cursor is not reachable without left/right keys.
+  const bool movePrev = mappedInput.wasPressed(MappedInputManager::Button::ScreenUp) ||
+                        (repeat && mappedInput.isPressed(MappedInputManager::Button::ScreenUp));
+  const bool moveNext = mappedInput.wasPressed(MappedInputManager::Button::ScreenDown) ||
+                        (repeat && mappedInput.isPressed(MappedInputManager::Button::ScreenDown));
+  if (movePrev && selected > 0) {
+    selected--;
+    lastHorizontalMoveTime = now;
+    requestUpdate();
+  } else if (moveNext && hasNextWord) {
+    selected++;
+    lastHorizontalMoveTime = now;
+    requestUpdate();
+  }
+#else
   const bool moveLeft = mappedInput.wasPressed(MappedInputManager::Button::ScreenLeft) ||
                         (repeat && mappedInput.isPressed(MappedInputManager::Button::ScreenLeft));
   const bool moveRight = mappedInput.wasPressed(MappedInputManager::Button::ScreenRight) ||
@@ -290,6 +307,7 @@ void DictionaryWordSelectActivity::loop() {
   } else if (mappedInput.wasPressed(MappedInputManager::Button::ScreenDown)) {
     moveVertical(1);
   }
+#endif
 }
 
 // Saves the pixels under words[selected]'s highlight box, then draws the

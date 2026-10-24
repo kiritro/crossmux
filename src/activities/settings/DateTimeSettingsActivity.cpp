@@ -79,6 +79,33 @@ void DateTimeSettingsActivity::loop() {
   if (touch.routed && app.invalidated()) requestUpdate();
   if (touch) return;
 
+#if FREEINK_CAP_FOUR_KEY_UI
+  // Four-key layout: UP/DOWN adjust the selected value, CONFIRM advances to the
+  // next field (saving after Minute), BACK steps back (cancelling from Year).
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] { adjustEditField(1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] { adjustEditField(-1); });
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (selectedEditField + 1 < EDIT_FIELD_COUNT) {
+      selectedEditField++;
+      requestUpdate();
+    } else {
+      confirmManualEdit();
+    }
+    return;
+  }
+  if (mappedInput.isPressed(MappedInputManager::Button::Confirm)) return;
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (selectedEditField > 0) {
+      selectedEditField--;
+      requestUpdate();
+    } else {
+      cancelManualEdit();
+    }
+    return;
+  }
+#else
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     cancelManualEdit();
     return;
@@ -98,6 +125,7 @@ void DateTimeSettingsActivity::loop() {
   });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustEditField(-1); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustEditField(1); });
+#endif
 }
 
 void DateTimeSettingsActivity::adjustEditField(const int delta) {

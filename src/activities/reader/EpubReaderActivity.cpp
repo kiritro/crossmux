@@ -3311,6 +3311,22 @@ void EpubReaderActivity::handleOverlayInput() {
       closeOverlayToPage();
       return;
     }
+#if FREEINK_CAP_FOUR_KEY_UI
+    // Four-key layout: UP/DOWN cycle the toolbar tools. Chapter jumps stay
+    // reachable through the Contents panel.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      focusedTool = (focusedTool + 2) % 3;
+      panelCursorShown = true;
+      fastRedraw();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+      focusedTool = (focusedTool + 1) % 3;
+      panelCursorShown = true;
+      fastRedraw();
+      return;
+    }
+#else
     if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
       focusedTool = (focusedTool + 2) % 3;
       panelCursorShown = true;
@@ -3323,15 +3339,18 @@ void EpubReaderActivity::handleOverlayInput() {
       fastRedraw();
       return;
     }
+#endif
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       openOverlay(toolOverlay(focusedTool));
       return;
     }
+#if !FREEINK_CAP_FOUR_KEY_UI
     const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
     const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
     if (prev || next) {
       gotoChapter(chapterIndex + (next ? 1 : -1));
     }
+#endif
     return;
   }
 

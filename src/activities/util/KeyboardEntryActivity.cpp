@@ -228,6 +228,23 @@ void KeyboardEntryActivity::moveSelectionCol(const int delta) {
   selCol = (selCol + delta + cols) % cols;
 }
 
+void KeyboardEntryActivity::moveSelectionLinear(int delta) {
+  const fui::KeyboardLayout& layout = currentLayout();
+  int total = 0;
+  for (int r = 0; r < layout.rowCount; ++r) total += layout.rows[r].count;
+  if (total <= 0) return;
+  int index = (selectedLogicalIndex() + delta % total + total) % total;
+  for (int r = 0; r < layout.rowCount; ++r) {
+    const int cols = layout.rows[r].count;
+    if (index < cols) {
+      selRow = r;
+      selCol = index;
+      return;
+    }
+    index -= cols;
+  }
+}
+
 bool KeyboardEntryActivity::syncSelectionToValue(const int16_t value) {
   const fui::KeyboardLayout& layout = currentLayout();
   for (int r = 0; r < layout.rowCount; r++) {
@@ -677,6 +694,7 @@ void KeyboardEntryActivity::loop() {
     upLongHandled = false;
   }
 
+#if !FREEINK_CAP_FOUR_KEY_UI
   if (upHeld && !upLongHandled && mappedInput.isPressed(MappedInputManager::Button::Up) &&
       mappedInput.getHeldTime() > LONG_PRESS_MS) {
     cursorMode = true;
@@ -685,10 +703,15 @@ void KeyboardEntryActivity::loop() {
     hintShowTime = millis();
     requestUpdate();
   }
+#endif
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
     if (upHeld && !upLongHandled && !cursorMode) {
+#if FREEINK_CAP_FOUR_KEY_UI
+      moveSelectionLinear(-1);
+#else
       moveSelectionRow(-1);
+#endif
       requestUpdate();
     }
     upHeld = false;
@@ -711,13 +734,18 @@ void KeyboardEntryActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
     if (downHeld && !downLongHandled && !cursorMode) {
+#if FREEINK_CAP_FOUR_KEY_UI
+      moveSelectionLinear(1);
+#else
       moveSelectionRow(1);
+#endif
       requestUpdate();
     }
     downHeld = false;
     downLongHandled = false;
   }
 
+#if !FREEINK_CAP_FOUR_KEY_UI
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
     if (cursorMode) return;
     moveSelectionCol(-1);
@@ -774,6 +802,7 @@ void KeyboardEntryActivity::loop() {
     rightHeld = false;
     rightLongHandled = false;
   }
+#endif
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
     confirmHeld = true;

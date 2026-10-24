@@ -293,7 +293,7 @@ ESP-IDF `firmware/frame_film_reader` firmware runs on. Board truth:
 |---|---|
 | EPD (GDEY0397T81P 3.97" 800x480 SSD1677, 4-gray) | SCK 48, MOSI/SDIN 47, CS 14, DC 13, RST 12, BUSY 11; 20 MHz |
 | SDMMC | 4-bit: CLK 40, CMD 41, D0/D1/D2/D3 = 39/38/2/42 |
-| Buttons | UP 4, DOWN 6, CONFIRM 5 (shared with power/wake), BACK 18; active-low. No LEFT/RIGHT GPIO: holding UP/DOWN 650 ms synthesizes LEFT/RIGHT (Waveshare-style gesture with the axes swapped) |
+| Buttons | UP 4, DOWN 6, CONFIRM 5 (shared with power/wake), BACK 18; active-low. Four-key UI: tabs, keyboard, date/time, home and reader menus are driven by UP/DOWN only. A legacy UP/DOWN-hold gesture still synthesizes LEFT/RIGHT for screens that have not been refactored |
 | Battery | ADC GPIO1 (ADC1_CH0), 20k/10k divider (x3.06), sampling enable GPIO8 |
 | Peripheral power | GPIO21 (PERI_PWR_EN) |
 | Status LED | WS2812 GRB x2 on GPIO17 |
@@ -301,6 +301,12 @@ ESP-IDF `firmware/frame_film_reader` firmware runs on. Board truth:
 GPIO5 is both CONFIRM and the only power/wake key, so the profile uses
 `InputStyle::DigitalConfirmPowerHold` (click confirms, hold sleeps) and maps the
 reading page pair to GPIO4 (Up/prev) and GPIO6 (Down/next).
+
+The four-key UI (`FREEINK_CAP_FOUR_KEY_UI`) removes the need for horizontal
+keys: the main tab bar walks with UP/DOWN and CONFIRM enters content; the soft
+keyboard walks keys in layout order; date/time uses UP/DOWN to adjust the
+selected field, CONFIRM to advance (saving on Minute) and BACK to step back
+(cancelling from Year); the reader toolbar cycles tools with UP/DOWN.
 
 The About screens and the web API report the product name **FilmReader** through
 `BoardConfig::displayName()`. The internal profile identifier stays

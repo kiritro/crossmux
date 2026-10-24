@@ -465,6 +465,20 @@ void HomeActivity::loop() {
   };
 
   if (isCarousel) {
+#if FREEINK_CAP_FOUR_KEY_UI
+    // Four-key layout: covers and menu entries are one vertical list, walked by
+    // UP/DOWN only. No left/right key is needed.
+    const int total = bookCount + renderedMenuCount;
+    const bool next = mappedInput.wasPressed(MappedInputManager::Button::Down);
+    const bool prev = mappedInput.wasPressed(MappedInputManager::Button::Up);
+    if ((next || prev) && total > 0) {
+      selectorIndex = next ? ButtonNavigator::nextIndex(selectorIndex, total)
+                           : ButtonNavigator::previousIndex(selectorIndex, total);
+      if (selectorIndex < bookCount) lastCarouselBookIndex = selectorIndex;
+      requestCarouselUpdate(CarouselUpdateScope::Full);
+      return;
+    }
+#else
     const bool coversFocused = selectorIndex < bookCount;
     const int rowIndex = coversFocused ? selectorIndex : selectorIndex - bookCount;
 
@@ -501,6 +515,7 @@ void HomeActivity::loop() {
       }
       return;
     }
+#endif
   } else if (!coverGridUi) {
     buttonNavigator.onNext([this, menuCount] {
       selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
@@ -527,6 +542,17 @@ void HomeActivity::loop() {
     // Side page buttons walk the covers, front Left/Right walk the tabs
     // (selectorIndex is flat: books first, then the tab items). A press while
     // selection sits in the other band jumps into this band first.
+#if FREEINK_CAP_FOUR_KEY_UI
+    // Four-key layout: one vertical list across covers and menu items.
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this, menuCount] {
+      selectorIndex = ButtonNavigator::previousIndex(selectorIndex, menuCount);
+      requestUpdate();
+    });
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this, menuCount] {
+      selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);
+      requestUpdate();
+    });
+#else
     const int coverCount = static_cast<int>(recentBooks.size());
     const auto cycleBand = [this](const int base, const int count, const int dir) {
       if (count <= 0) return;
@@ -549,6 +575,7 @@ void HomeActivity::loop() {
     buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [&cycleBand, coverCount, menuCount] {
       cycleBand(coverCount, menuCount - coverCount, +1);
     });
+#endif
     return;
   }
 
