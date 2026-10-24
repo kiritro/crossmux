@@ -2,9 +2,9 @@
 
 > Sticky, X4 Pro, X4 Classic, PaperMono, [eego A4](eego-a4.md), [Murphy M4](murphy-m4.md),
 > [Waveshare ePaper 3.97](waveshare-epaper-397.md), [Metalio E-Ink 4](metalio-eink4.md),
-> and [MindReset Read Pico](read-pico.md) are separate ESP32-S3
-> compile-time targets. The one-binary rule in this document applies only to
-> the ESP32-C3 X3/X4 pair.
+> Film Reader (`film_reader`), and [MindReset Read Pico](read-pico.md) are
+> separate ESP32-S3 compile-time targets. The one-binary rule in this document
+> applies only to the ESP32-C3 X3/X4 pair.
 
 > Deep reference for [AGENTS.md](../../AGENTS.md). How one firmware binary runs
 > on both the Xteink X3 and X4, how the device is detected at boot, what differs
@@ -37,6 +37,7 @@ pio run -e murphy_m4
 pio run -e waveshare_epaper_397
 pio run -e metalio_eink4
 pio run -e readpico
+pio run -e film_reader
 ```
 
 Eight S3 targets are published by the shared Nightly matrix, including MindReset
@@ -282,6 +283,46 @@ verification.
   ([CrossPointWebServer.cpp:382](../../src/network/CrossPointWebServer.cpp)).
 - **UI** — the X3-only Tilt Page Turn item appears only when the QMI8658 is
   detected. Clock and Date & Time settings are available on every device.
+
+## Film Reader (`film_reader`)
+
+ESP32-S3 reader target for the Film Reader board — the same hardware the
+ESP-IDF `firmware/frame_film_reader` firmware runs on. Board truth:
+
+| Function | Wiring |
+|---|---|
+| EPD (GDEY0397T81P 3.97" 800x480 SSD1677, 4-gray) | SCK 48, MOSI/SDIN 47, CS 14, DC 13, RST 12, BUSY 11; 20 MHz |
+| SDMMC | 4-bit: CLK 40, CMD 41, D0/D1/D2/D3 = 39/38/2/42 |
+| Buttons | UP 4, DOWN 6, CONFIRM 5 (shared with power/wake), BACK 18; active-low. No LEFT/RIGHT GPIO: holding UP/DOWN 650 ms synthesizes LEFT/RIGHT (Waveshare-style gesture with the axes swapped) |
+| Battery | ADC GPIO1 (ADC1_CH0), 20k/10k divider (x3.06), sampling enable GPIO8 |
+| Peripheral power | GPIO21 (PERI_PWR_EN) |
+| Status LED | WS2812 GRB x2 on GPIO17 |
+
+GPIO5 is both CONFIRM and the only power/wake key, so the profile uses
+`InputStyle::DigitalConfirmPowerHold` (click confirms, hold sleeps) and maps the
+reading page pair to GPIO4 (Up/prev) and GPIO6 (Down/next).
+
+The About screens and the web API report the product name **FilmReader** through
+`BoardConfig::displayName()`. The internal profile identifier stays
+`film_reader` because the OTA manifest query and the firmware board tag use it.
+
+GPIO21 and GPIO8 are carried as `power.latch0/latch1` so `holdPowerRails()`
+asserts them first thing in boot; the SDK's ADC battery backend has no per-read
+enable pin, so GPIO8 stays on for `BatteryMonitor`.
+
+The panel reuses the Waveshare 3.97 SSD1677 waveform config
+(`crossmuxSsd1677Waveshare397Config()`) and the vendor deep-sleep parameter
+(`0x10` / `0x01`), matching the GDEY0397T81P reference driver.
+
+PENDING hardware validation (a successful build is not acceptance):
+
+- Panel waveform/LUT reuse and refresh appearance (starts from the Waveshare config).
+- Battery divider multiplier (3.06 taken from the reader firmware).
+- PSRAM type: `memory_type = dio_opi` (Octal). The N16R8 module's PSRAM is Octal;
+  a `dio_qspi` build booted with `quad_psram: PSRAM chip is not connected, or
+  wrong PSRAM line mode` and never initialized PSRAM. The reader firmware's
+  `sdkconfig_pro` (`CONFIG_SPIRAM_MODE_QUAD`) did not match this unit.
+- Shared CONFIRM/PWR key feel (click vs hold thresholds) and deep-sleep wake.
 
 ## Adding a future device variant
 

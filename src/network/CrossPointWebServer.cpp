@@ -661,7 +661,7 @@ void CrossPointWebServer::handleStatus() const {
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 #else
-  doc["device"] = BoardConfig::ACTIVE.name;
+  doc["device"] = BoardConfig::displayName();
 #endif
 
   char snBuf[33] = {0};

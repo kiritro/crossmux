@@ -401,6 +401,29 @@ bool ActivityManager::handleMainTabInput() {
       }
       if (mappedInput.isPressed(MappedInputManager::Button::Confirm)) return true;
 
+#if FREEINK_CAP_AXIS_HOLD_HORIZONTAL
+      // UP/DOWN are also the axis-hold source for LEFT/RIGHT on this board, so
+      // entering the current tab's content waits for the release. Acting on the
+      // press would leave the tab bar before the 650 ms hold could become a tab
+      // switch. On the release frame the Left/Right handlers above run first, so
+      // a hold switches tabs and never falls into content as well.
+      if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+        mainTabFocus = MainTabFocus::Content;
+        currentActivity->selectMainTabContentEdge(MainTabContentEdge::First);
+        requestUpdate();
+        return true;
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+        mainTabFocus = MainTabFocus::Content;
+        currentActivity->selectMainTabContentEdge(MainTabContentEdge::Last);
+        requestUpdate();
+        return true;
+      }
+      if (mappedInput.isPressed(MappedInputManager::Button::Up) ||
+          mappedInput.isPressed(MappedInputManager::Button::Down)) {
+        return true;
+      }
+#else
       if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
         mainTabFocus = MainTabFocus::Content;
         mainTabEntryReleasePending = true;
@@ -415,6 +438,7 @@ bool ActivityManager::handleMainTabInput() {
         requestUpdate();
         return true;
       }
+#endif
 
       // Recent's Back is owned by the shared home Standby handler.
       if (currentTab == MainTab::Recent) return false;

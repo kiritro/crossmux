@@ -96,7 +96,7 @@ void AboutActivity::onEnter() {
   // BoardConfig::ACTIVE reflects RUNTIME detection: selectDevice() picked the
   // profile and applyXteinkDisplayController() may have promoted the display
   // controller to the panel actually found on the bus.
-  rowValues_[ITEM_DEVICE] = BoardConfig::ACTIVE.name;
+  rowValues_[ITEM_DEVICE] = BoardConfig::displayName();
   rowValues_[ITEM_FIRMWARE] = CROSSPOINT_VERSION;
   snprintf(buf, sizeof(buf), "%s rev %u", ESP.getChipModel(), static_cast<unsigned>(ESP.getChipRevision()));
   rowValues_[ITEM_CHIP] = buf;

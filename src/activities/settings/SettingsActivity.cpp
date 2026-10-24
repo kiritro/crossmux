@@ -86,7 +86,7 @@ class InxAboutActivity final : public Activity {
   void onEnter() override {
     Activity::onEnter();
     heapInfo = HalSystem::getHeapInfo();
-    deviceName = BoardConfig::ACTIVE.name;
+    deviceName = BoardConfig::displayName();
 #ifdef SIMULATOR
     chipModel = "Simulator";
     wifiMacAvailable = HalSystem::getDeviceId(wifiMac);
